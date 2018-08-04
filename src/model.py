@@ -13,6 +13,9 @@ import random
 import sys
 from contextlib import contextmanager
 import logging
+from src.replay_buffer import PrioritizedReplayBuffer
+from common.segment_tree import SumSegmentTree, MinSegmentTree
+from common.schedules import LinearSchedule
 
 class Model(object):
 
@@ -24,10 +27,9 @@ class Model(object):
         
         self.scale_subregion = float(3)/4
         self.scale_mask = float(1)/(self.scale_subregion*4)
-        self.replay = []
-        self.h = 0
-        self.buffer_experience_replay = 1000
+        self.buffer_experience_replay = 50000
         self.gamma = 0.90
+        self.replay = PrioritizedReplayBuffer(self.buffer_experience_replay, alpha=0.6)
             
         
     def load_feature_map_model(self, t):
@@ -52,7 +54,7 @@ class Model(object):
         string = './output/model/model' + str(int(epoch)) + '_epoch' + '.h5'
         self.rl_model.save_weights(string, overwrite=True)
         
-    def train_iterator(self, i, number_of_steps):
+    def train_iterator(self, debug, i, number_of_steps, epsilon, start_train_iters=10):
         pid, target_data, search_data, not_contain = self.get_next_node()
 
         target_image = np.array(Image.open(target_data['image']))
@@ -77,7 +79,7 @@ class Model(object):
 
         iou = follow_iou(gt_mask, region_mask)
         # init of the history vector that indicates past actions (7 actions * 4 steps in the memory)
-        history_vector = np.zeros([28])
+        history_vector = np.zeros([24])
         # computation of the initial state
         if target_image.shape[0] <=1 or target_image.shape[1] <=1:
             print('pid:',pid,' img_path:',target_data["image"], 'shape:', target_image.shape, 'anno:', np.where(target_data['gt_pids']==pid), 'pids', target_data['gt_pids'], 'boxes', target_data['boxes'], 'box',target_data['boxes'][np.where(target_data['gt_pids']==pid)[0][0]])
@@ -95,11 +97,11 @@ class Model(object):
             qval = self.rl_model.predict(state.T, batch_size=1)
 
             # we force terminal action in case actual IoU is higher than 0.5, to train faster the agent
-            if new_iou > 0.5:
-                action = 6
+            #if new_iou > 0.5:
+            #    action = 6
             # epsilon-greedy policy
-            elif random.random() < 0.1:
-                action = np.random.randint(1, 6)
+            if random.random() < epsilon:
+                action = np.random.randint(1, 7)
             else:
                 action = (np.argmax(qval))+1
 
@@ -107,20 +109,20 @@ class Model(object):
             if action == 6:
                 new_iou = follow_iou(gt_mask, region_mask)
                 reward = get_reward_trigger(new_iou)
-                if new_iou > 0.5:
+                if new_iou > 0.5 and not debug:
                     image = mask_image_with_mean_background(gt_mask, search_image, [0,255,0])
                     image = np.concatenate([image] + [mask_image_with_mean_background(region_mask, search_image, [255,0,0]) for region_mask in region_masks],axis=1)
                     #image = mask_image_with_mean_background(region_mask, search_image)
                     save_img('./output/img/%d-%d-%f-%s.jpg' % (i,pid,new_iou,search_data['image'].split('/')[-1][:-4]), image)
             elif action == 7:
-                if not_contain: reward = 100
-                else: reward = -100
+                if not_contain: reward = 1
+                else: reward = -1
             elif step == number_of_steps and action != 6:
                 new_iou = follow_iou(gt_mask, region_mask)
                 if new_iou > 0.5:
-                    reward = -50
+                    reward = -0.5
                 else:
-                    reward = 100
+                    reward = 1
             else:
                 region_mask = np.zeros(original_shape)
                 size_mask = (size_mask[0] * self.scale_subregion, size_mask[1] * self.scale_subregion)
@@ -136,20 +138,19 @@ class Model(object):
                 new_state = get_state(target_iv, search_iv, history_vector)
             # Experience replay storage
             if len(self.replay) < self.buffer_experience_replay:
-                self.replay.append((state, action, reward, new_state))
-            else:
-                if self.h < (self.buffer_experience_replay-1):
-                    self.h += 1
-                else:
-                    self.h = 0
-                h_aux = self.h
-                h_aux = int(h_aux)
-                self.replay[h_aux] = (state, action, reward, new_state)
-                minibatch = random.sample(self.replay, self.batch_size)
-                X_train = []
-                y_train = []
+                self.replay.add(state, action, reward, new_state, float(action>=6))
+                #self.replay.append((state, action, reward, new_state))
+                
+            losses = []
+            if i >= start_train_iters:
+                self.replay.add(state, action, reward, new_state, float(action>=6))
+                experience = self.replay.sample(self.batch_size, beta=self.beta_schedule.value(i))
+                (obs, actions, rewards, new_obs, dones, weights, batch_idxes) = experience
+                
                 # we pick from the replay memory a sampled minibatch and generate the training samples
-                for memory in minibatch:
+                for memory in zip(obs, actions, rewards, new_obs):
+                    X_train = []
+                    y_train = []
                     old_state, action, reward, new_state = memory
                     old_qval = self.rl_model.predict(old_state.T, batch_size=1)
                     newQ = self.rl_model.predict(new_state.T, batch_size=1)
@@ -162,37 +163,47 @@ class Model(object):
                     y[action-1] = update #target output
                     X_train.append(old_state)
                     y_train.append(y)
-                X_train = np.array(X_train).astype("float32")[:, :, 0]
-                y_train = np.array(y_train).astype("float32")[:, :, 0]
-                
-                self.rl_model.fit(X_train, y_train, batch_size=self.batch_size, epochs=1, verbose=0, callbacks=[history_callback])
+                    X_train = np.array(X_train).astype("float32")[:, :, 0]
+                    y_train = np.array(y_train).astype("float32")[:, :, 0]
 
+                    self.rl_model.fit(X_train, y_train, batch_size=1, epochs=1, verbose=0, callbacks=[history_callback])
+                    losses.append(history_callback.history['loss'][0])
+                td_errors = losses
+                new_priorities = np.abs(td_errors) + 1e-6
+                self.replay.update_priorities(batch_idxes, new_priorities)
+                
                 state = new_state
 
             if action == 6: break
-        losses = []
-        if len(self.replay) >= self.buffer_experience_replay: losses = history_callback.history['loss']
+        if i >= start_train_iters: losses = history_callback.history['loss']
         return (reward, step, losses)
 
-    def train_model(self, max_iters=100000, number_of_steps=10, log_path='./log'):
+    def train_model(self, max_iters=100000, number_of_steps=10, log_path='./log', debug=False):
         tb = TensorBoard(log_path)
         tb.set_model(self.rl_model)
+        
+        self.beta_schedule = LinearSchedule(100000,initial_p=0.4,final_p=1.0)
+        epsilon = 1.
         for i in range(max_iters):
+            if epsilon > 0.1:
+                epsilon *= 0.98
             with timer('all', i):
-                reward, step, loss = self.train_iterator(i, number_of_steps)
-            summary = tf.Summary()
-            reward_value = summary.value.add()
-            reward_value.simple_value = reward
-            reward_value.tag = 'reward'
-            step_value = summary.value.add()
-            step_value.simple_value = step
-            step_value.tag = 'step'
-            if len(loss) > 0:
-                loss_value = summary.value.add()
-                loss_value.simple_value = sum(loss)/len(loss)
-                loss_value.tag = 'loss'
-            tb.writer.add_summary(summary, i)
-            tb.writer.flush()
+                reward, step, loss = self.train_iterator(debug, i, number_of_steps, epsilon)
+            
+            if not debug:
+                summary = tf.Summary()
+                reward_value = summary.value.add()
+                reward_value.simple_value = reward
+                reward_value.tag = 'reward'
+                step_value = summary.value.add()
+                step_value.simple_value = step
+                step_value.tag = 'step'
+                if len(loss) > 0:
+                    loss_value = summary.value.add()
+                    loss_value.simple_value = sum(loss)/len(loss)
+                    loss_value.tag = 'loss'
+                tb.writer.add_summary(summary, i)
+                tb.writer.flush()
             #sys.stdout.write('\r'+str(i))
             if (i+1)%10000 is 0:
                 self.save_model(i/10000+1)

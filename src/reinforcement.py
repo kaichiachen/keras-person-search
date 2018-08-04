@@ -11,7 +11,7 @@ from src.metrics import *
 from src.utils import *
 
 # Different actions that the agent can do
-number_of_actions = 7
+number_of_actions = 6
 # Actions captures in the history vector
 actions_of_history = 4
 # Visual descriptor size
@@ -63,20 +63,20 @@ def get_state_pool45(history_vector,  region_descriptor):
 
 
 def get_reward_movement(iou, new_iou):
-    return (new_iou-iou)*10
+    return new_iou-iou
 
 
 def get_reward_trigger(new_iou):
     if new_iou > iou_threshold:
-        reward = new_iou*100
+        reward = new_iou
     else:
-        reward = -100
+        reward = -1
     return reward
 
 
 def get_q_network(weights_path):
     model = Sequential()
-    model.add(Dense(1024, kernel_initializer=lambda shape:K.random_normal(shape), input_shape=(8220,)))
+    model.add(Dense(1024, kernel_initializer=lambda shape:K.random_normal(shape), input_shape=(8216,)))
     model.add(Activation('relu'))
     model.add(Dropout(0.2))
     model.add(Dense(1024, kernel_initializer=lambda shape:K.random_normal(shape)))

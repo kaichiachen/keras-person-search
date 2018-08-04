@@ -14,8 +14,12 @@ parser.add_argument(
     help='GPU ID want to use')
 
 parser.add_argument(
-    '--max_iters', required=False, type=int, default=500000,
+    '--max_iters', required=False, type=int, default=100000,
     help='Iteration times for training')
+
+parser.add_argument(
+    '--debug', required=False, type=int, default=1,
+    help='Debug mode')
 
 parser.add_argument(
     '--batch_size', required=False, type=int, default=32,
@@ -49,4 +53,4 @@ with open('data/pid_map_image_update.txt', 'rb') as f:
     
 ct = Model(data, batch_size=args.batch_size)
 ct.load_feature_map_model(args.featuremap_type)
-ct.train_model(max_iters=args.max_iters, number_of_steps=args.number_of_steps, log_path=args.log_path)
+ct.train_model(max_iters=args.max_iters, number_of_steps=args.number_of_steps, log_path=args.log_path, debug=bool(args.debug))
