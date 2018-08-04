@@ -38,7 +38,7 @@ with open('data/pid_map_image.txt', 'rb') as f:
     data = u.load()
     
 fm_model = VGG16(weights='imagenet')
-rl_model = get_q_network('./output/model/model60_epoch.h5')
+rl_model = get_q_network('./output/model/model6_epoch.h5')
 
 scale_subregion = float(3)/4
 scale_mask = float(1)/(scale_subregion*4)

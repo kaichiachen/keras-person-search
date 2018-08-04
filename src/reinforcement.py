@@ -76,9 +76,7 @@ def get_reward_trigger(new_iou):
 
 def get_q_network(weights_path):
     model = Sequential()
-    model.add(Dense(4096, kernel_initializer=lambda shape:K.random_normal(shape), input_shape=(50204,)))
-    model.add(Activation('relu'))
-    model.add(Dense(1024, kernel_initializer=lambda shape:K.random_normal(shape), input_shape=(4096,)))
+    model.add(Dense(1024, kernel_initializer=lambda shape:K.random_normal(shape), input_shape=(8220,)))
     model.add(Activation('relu'))
     model.add(Dropout(0.2))
     model.add(Dense(1024, kernel_initializer=lambda shape:K.random_normal(shape)))

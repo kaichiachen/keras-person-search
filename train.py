@@ -18,7 +18,7 @@ parser.add_argument(
     help='Iteration times for training')
 
 parser.add_argument(
-    '--batch_size', required=False, type=int, default=128,
+    '--batch_size', required=False, type=int, default=32,
     help='Batch size for training')
 
 parser.add_argument(
@@ -29,6 +29,10 @@ parser.add_argument(
     '--number_of_steps', required=False, type=int, default=10,
     help='the maximum number of steps allowed for the agent to find person')
 
+parser.add_argument(
+    '--log_path', required=False, type=str, default='./log',
+    help='path to store tensorboard log event')
+
 args = parser.parse_args()
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpus
 
@@ -38,11 +42,11 @@ keras.backend.set_session(sess)
 
 logging.basicConfig(level=logging.INFO)
 
-with open('data/pid_map_image.txt', 'rb') as f:
+with open('data/pid_map_image_update.txt', 'rb') as f:
     u = pickle._Unpickler(f)
     u.encoding = 'latin1'
     data = u.load()
     
 ct = Model(data, batch_size=args.batch_size)
 ct.load_feature_map_model(args.featuremap_type)
-ct.train_model(max_iters=args.max_iters, number_of_steps=args.number_of_steps)
+ct.train_model(max_iters=args.max_iters, number_of_steps=args.number_of_steps, log_path=args.log_path)

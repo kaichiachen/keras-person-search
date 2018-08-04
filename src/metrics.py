@@ -3,9 +3,9 @@ import cv2
 
 
 def calculate_iou(img_mask, gt_mask):
-    gt_mask *= 1.0
-    img_and = cv2.bitwise_and(img_mask, gt_mask)
-    img_or = cv2.bitwise_or(img_mask, gt_mask)
+    gm = gt_mask * 1.0
+    img_and = cv2.bitwise_and(img_mask, gm)
+    img_or = cv2.bitwise_or(img_mask, gm)
     j = np.count_nonzero(img_and)
     i = np.count_nonzero(img_or)
     iou = float(float(j)/float(i))
@@ -13,10 +13,10 @@ def calculate_iou(img_mask, gt_mask):
 
 
 def calculate_overlapping(img_mask, gt_mask):
-    gt_mask *= 1.0
-    img_and = cv2.bitwise_and(img_mask, gt_mask)
+    gm = gt_mask * 1.0
+    img_and = cv2.bitwise_and(img_mask, gm)
     j = np.count_nonzero(img_and)
-    i = np.count_nonzero(gt_mask)
+    i = np.count_nonzero(gm)
     overlap = float(float(j)/float(i))
     return overlap
 
